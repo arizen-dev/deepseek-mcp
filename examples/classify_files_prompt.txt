@@ -1,0 +1,9 @@
+Classify these filenames into doc / code / config / test / unknown.
+Do not infer contents beyond the filename.
+Return JSON only with fields: file, type, confidence.
+
+- README.md
+- pyproject.toml
+- src/deepseek_mcp/server.py
+- tests/test_protocol.py
+- .mcp.json.example

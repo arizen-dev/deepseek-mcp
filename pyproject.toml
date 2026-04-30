@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "deepseek-mcp"
+version = "0.1.0"
+description = "A tiny MCP stdio server that exposes DeepSeek as a Claude/Codex tool."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Igor Bobriakov" }]
+keywords = ["mcp", "deepseek", "claude", "codex", "llm", "ai-tools"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = ["openai>=1.0"]
+
+[project.urls]
+Homepage = "https://github.com/arizen-dev/deepseek-mcp"
+Issues = "https://github.com/arizen-dev/deepseek-mcp/issues"
+
+[project.scripts]
+deepseek-mcp-server = "deepseek_mcp.server:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
