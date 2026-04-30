@@ -165,14 +165,24 @@ Model names are passed through to the DeepSeek-compatible API. If DeepSeek chang
 
 ## Cost
 
-Per-call cost depends on token count and model. Verify current pricing at [api.deepseek.com](https://api.deepseek.com).
+Per-call cost depends on token count and model. Pricing per [api.deepseek.com](https://api.deepseek.com) (checked 2026-04-30).
 
-| Model | Speed | Typical small task | Typical medium task |
-|-------|-------|--------------------|--------------------|
-| `deepseek-v4-flash` | Fast | ~1K tokens → ~$0.01 | ~4K tokens → ~$0.05 |
-| `deepseek-v4-pro` | Slower, stronger | ~1K tokens → ~$0.03 | ~4K tokens → ~$0.15 |
+| Model | Input (miss) | Input (cache hit) | Output |
+|-------|-------------|-------------------|--------|
+| `deepseek-v4-flash` | $0.14/1M | $0.0028/1M | $0.28/1M |
+| `deepseek-v4-pro` | $0.435/1M¹ | $0.0036/1M¹ | $0.87/1M¹ |
 
-A typical session of 10-20 small tasks costs roughly $0.10–$1.00. Actual cost varies with prompt length, model choice, and DeepSeek pricing changes.
+¹ Pro pricing is 75% off until 2026-05-31. Non-discounted: $1.74/$0.0145/$3.48.
+
+**Typical costs:**
+
+| Task | Flash (cache miss) | Flash (cache hit) | Pro (cache miss) |
+|------|-------------------|-------------------|-------------------|
+| Small (1K+0.5K) | ~$0.0003 | ~$0.0001 | ~$0.0009 |
+| Medium (4K+2K) | ~$0.001 | ~$0.0006 | ~$0.003 |
+| Large (100K+10K) | ~$0.02 | ~$0.003 | ~$0.05 |
+
+A session of 100 small tasks costs roughly $0.03 (flash) or $0.09 (pro).
 
 ## When to use it
 
