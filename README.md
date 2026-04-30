@@ -75,7 +75,23 @@ MCP servers are started when the client launches, so restart Claude Code or Code
 
 ### 3. Configure MCP
 
-For a project-local Claude Code setup, copy `.mcp.json.example` to `.mcp.json` and set the absolute path:
+If you installed via pip, use the installed command directly:
+
+```json
+{
+  "mcpServers": {
+    "deepseek": {
+      "command": "deepseek-mcp-server",
+      "args": [],
+      "env": {
+        "DEEPSEEK_API_KEY": "${DEEPSEEK_API_KEY}"
+      }
+    }
+  }
+}
+```
+
+If you cloned the repo, point to the script directly:
 
 ```json
 {
@@ -105,8 +121,8 @@ For Codex, add a global MCP server in `~/.codex/config.toml`:
 
 ```toml
 [mcp_servers.deepseekWorker]
-command = "python3"
-args = ["/absolute/path/to/deepseek-mcp/deepseek_mcp_server.py"]
+command = "deepseek-mcp-server"
+args = []
 
 [mcp_servers.deepseekWorker.env]
 DEEPSEEK_API_KEY = "sk-..."
