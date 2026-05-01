@@ -33,6 +33,10 @@ def main() -> None:
     advise_parser.add_argument(
         "--effort", choices=["medium", "high", "max"], default="max",
     )
+    advise_parser.add_argument(
+        "--show-reasoning", action="store_true",
+        help="Include <reasoning> block from thinking mode in output",
+    )
 
     args = parser.parse_args()
 
@@ -81,7 +85,12 @@ def _cmd_advise(args: argparse.Namespace) -> None:
         sys.exit(2)
 
     from deepseek_mcp.server import call_advisor
-    call_args = {"prompt": args.prompt, "effort": args.effort, "system": None}
+    call_args = {
+        "prompt": args.prompt,
+        "effort": args.effort,
+        "system": None,
+        "show_reasoning": args.show_reasoning,
+    }
     result = call_advisor(call_args)
     print(result)
 

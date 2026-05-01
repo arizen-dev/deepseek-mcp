@@ -15,7 +15,7 @@ def test_initialize_response():
     assert response["id"] == 1
     assert response["result"]["protocolVersion"] == "2024-11-05"
     assert response["result"]["serverInfo"]["name"] == "deepseek-mcp"
-    assert response["result"]["serverInfo"]["version"] == "0.5.0"
+    assert response["result"]["serverInfo"]["version"] == "0.5.1"
     assert response["result"]["serverInfo"]["apiKey"] in ("set", "missing")
 
 

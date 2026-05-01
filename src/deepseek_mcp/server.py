@@ -14,7 +14,7 @@ from openai import OpenAI
 
 PROTOCOL_VERSION = "2024-11-05"
 SERVER_NAME = "deepseek-mcp"
-SERVER_VERSION = "0.5.0"
+SERVER_VERSION = "0.5.1"
 
 PRICING: dict[str, dict[str, float]] = {
     "deepseek-v4-flash": {"in": 0.14, "out": 0.28},
@@ -146,6 +146,15 @@ TOOLS: list[dict[str, Any]] = [
                         "medium: lighter thinking, quicker (~30s)."
                     ),
                 },
+                "show_reasoning": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": (
+                        "If true, prepend a <reasoning>...</reasoning> block "
+                        "with the model's chain-of-thought. Off by default to "
+                        "keep responses compact — reasoning_content can be large."
+                    ),
+                },
             },
             "required": ["prompt"],
         },
@@ -242,7 +251,7 @@ def call_advisor(args: dict[str, Any], progress_token: Any = None) -> str:
         "latency_s": round(time.time() - started_at, 2),
         "cost_usd": round(cost, 6) if cost else None,
     })
-    if reasoning_text:
+    if reasoning_text and args.get("show_reasoning"):
         result = f"<reasoning>\n{reasoning_text}\n</reasoning>\n\n{result}"
     return result
 
