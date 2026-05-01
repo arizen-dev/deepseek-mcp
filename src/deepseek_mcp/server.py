@@ -19,20 +19,31 @@ SERVER_VERSION = "0.3.0"
 # invents plausible-sounding numbers when asked for "concrete" output.
 DEFAULT_SYSTEM_PROMPT = (
     "You are a precise assistant completing bounded tasks. "
+    # Epistemic honesty guard — DeepSeek invents quantities when asked to be 'concrete'
     "Do not fabricate specific numbers, percentages, timeframes, durations, "
     "or statistics unless they appear verbatim in the input. "
     "When asked to be concrete or specific, use qualitative language "
     "rather than invented quantities. "
-    "If you are uncertain about a fact, say so explicitly rather than guessing."
+    "If you are uncertain about a fact, say so explicitly rather than guessing. "
+    # Output discipline
+    "Be concise: no preamble, no 'Certainly!', no restatement of the task. "
+    "Start your response with the answer. "
+    "Use structured output (tables, lists, JSON) when the task calls for it. "
+    "Flag ambiguity explicitly with a one-line note rather than silently resolving it. "
+    "If the task has sub-parts, address each one."
 )
 
 ADVISOR_SYSTEM_PROMPT = (
-    "You are a sharp, honest advisor consulted when the primary agent needs "
-    "a second opinion or deeper analysis. "
+    "You are a sharp, honest senior advisor consulted when the primary agent needs "
+    "a second opinion, deeper analysis, or a check on a consequential decision. "
     "Do not fabricate numbers, percentages, or statistics — if data is absent, say so. "
-    "Structure your response: first state your conclusion, then your reasoning, "
-    "then any important caveats or alternatives the primary agent should consider. "
-    "Be direct. If the question has no good answer, say that."
+    "Structure every response in three sections: "
+    "(1) CONCLUSION — your direct answer or recommendation in 1-3 sentences. "
+    "(2) REASONING — the key factors, evidence, or logic behind your conclusion. "
+    "(3) WATCH OUT — caveats, failure modes, alternatives, or what the primary agent "
+    "may have missed. Omit this section only if there is genuinely nothing to flag. "
+    "Be direct. If the question has no good answer, say so and explain why. "
+    "Do not hedge unnecessarily — the primary agent needs a clear signal, not diplomatic fog."
 )
 
 # reasoning_effort values accepted by deepseek-v4-pro thinking mode
@@ -85,10 +96,11 @@ TOOLS: list[dict[str, Any]] = [
             "Deep reasoning via DeepSeek V4 Pro with thinking mode enabled. "
             "Use when `deepseek` is not sufficient: judgment under ambiguity, "
             "architectural tradeoffs, second opinions on consequential decisions, "
-            "complex analysis, or anything where being wrong has real cost. "
-            "More expensive (~6x flash) and slower (30-120s). "
-            "effort=high (default): chain-of-thought reasoning. "
-            "effort=max: exhaustive analysis, best for the hardest calls."
+            "complex multi-factor analysis, or anything where being wrong has real cost. "
+            "Defaults to effort=max — exhaustive reasoning. "
+            "Returns structured response: CONCLUSION / REASONING / WATCH OUT. "
+            "More expensive (~6x flash) and slower (60-120s). "
+            "Use effort=medium or high only when you need a quicker lighter read."
         ),
         "inputSchema": {
             "type": "object",
@@ -101,12 +113,12 @@ TOOLS: list[dict[str, Any]] = [
                 "effort": {
                     "type": "string",
                     "enum": ["medium", "high", "max"],
-                    "default": "high",
+                    "default": "max",
                     "description": (
                         "Reasoning depth. "
-                        "medium: careful response, lighter thinking. "
-                        "high (default): full chain-of-thought, alternatives considered. "
-                        "max: exhaustive — use for the hardest decisions."
+                        "max (default): exhaustive, for the hardest decisions (~90-120s). "
+                        "high: full chain-of-thought + alternatives (~60s). "
+                        "medium: lighter thinking, quicker (~30s)."
                     ),
                 },
             },
@@ -155,7 +167,7 @@ def call_advisor(args: dict[str, Any], progress_token: Any = None) -> str:
         {"role": "user", "content": args["prompt"]},
     ]
 
-    effort = EFFORT_LEVELS.get(args.get("effort", DEFAULT_EFFORT), DEFAULT_EFFORT)
+    effort = EFFORT_LEVELS.get(args.get("effort", "max"), "max")
     started_at = time.time()
     model = "deepseek-v4-pro"
 
