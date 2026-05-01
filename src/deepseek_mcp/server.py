@@ -13,7 +13,18 @@ from openai import OpenAI
 
 PROTOCOL_VERSION = "2024-11-05"
 SERVER_NAME = "deepseek-mcp"
-SERVER_VERSION = "0.1.0"
+SERVER_VERSION = "0.2.0"
+
+# Injected into every call. Guards against the confirmed failure mode where DeepSeek
+# invents plausible-sounding numbers when asked for "concrete" output.
+DEFAULT_SYSTEM_PROMPT = (
+    "You are a precise assistant completing bounded tasks. "
+    "Do not fabricate specific numbers, percentages, timeframes, durations, "
+    "or statistics unless they appear verbatim in the input. "
+    "When asked to be concrete or specific, use qualitative language "
+    "rather than invented quantities. "
+    "If you are uncertain about a fact, say so explicitly rather than guessing."
+)
 
 
 def api_client() -> OpenAI:
@@ -38,7 +49,14 @@ TOOLS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "prompt": {"type": "string", "description": "Task prompt"},
-                "system": {"type": "string", "description": "Optional system prompt"},
+                "system": {
+                    "type": "string",
+                    "description": (
+                        "Optional additional system instructions. "
+                        "Appended after the built-in epistemic honesty guard — "
+                        "do not repeat it."
+                    ),
+                },
                 "model": {
                     "type": "string",
                     "default": "deepseek-v4-flash",
@@ -59,10 +77,13 @@ TOOLS: list[dict[str, Any]] = [
 
 
 def call_deepseek(args: dict[str, Any], progress_token: Any = None) -> str:
-    messages: list[dict[str, str]] = []
+    system_parts = [DEFAULT_SYSTEM_PROMPT]
     if args.get("system"):
-        messages.append({"role": "system", "content": args["system"]})
-    messages.append({"role": "user", "content": args["prompt"]})
+        system_parts.append(args["system"])
+    messages: list[dict[str, str]] = [
+        {"role": "system", "content": "\n\n".join(system_parts)},
+        {"role": "user", "content": args["prompt"]},
+    ]
 
     model = args.get("model", "deepseek-v4-flash")
     started_at = time.time()
