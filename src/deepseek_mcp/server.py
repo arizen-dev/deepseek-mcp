@@ -7,25 +7,27 @@ import json
 import os
 import sys
 import time
+from datetime import datetime, timezone
 from typing import Any
 
 from openai import OpenAI
 
 PROTOCOL_VERSION = "2024-11-05"
 SERVER_NAME = "deepseek-mcp"
-SERVER_VERSION = "0.3.0"
+SERVER_VERSION = "0.5.0"
 
-# Injected into every call. Guards against the confirmed failure mode where DeepSeek
-# invents plausible-sounding numbers when asked for "concrete" output.
+PRICING: dict[str, dict[str, float]] = {
+    "deepseek-v4-flash": {"in": 0.14, "out": 0.28},
+    "deepseek-v4-pro": {"in": 0.435, "out": 1.74},
+}
+
 DEFAULT_SYSTEM_PROMPT = (
     "You are a precise assistant completing bounded tasks. "
-    # Epistemic honesty guard — DeepSeek invents quantities when asked to be 'concrete'
     "Do not fabricate specific numbers, percentages, timeframes, durations, "
     "or statistics unless they appear verbatim in the input. "
     "When asked to be concrete or specific, use qualitative language "
     "rather than invented quantities. "
     "If you are uncertain about a fact, say so explicitly rather than guessing. "
-    # Output discipline
     "Be concise: no preamble, no 'Certainly!', no restatement of the task. "
     "Start your response with the answer. "
     "Use structured output (tables, lists, JSON) when the task calls for it. "
@@ -46,9 +48,11 @@ ADVISOR_SYSTEM_PROMPT = (
     "Do not hedge unnecessarily — the primary agent needs a clear signal, not diplomatic fog."
 )
 
-# reasoning_effort values accepted by deepseek-v4-pro thinking mode
 EFFORT_LEVELS = {"medium": "medium", "high": "high", "max": "max"}
 DEFAULT_EFFORT = "high"
+
+LOG_DIR = os.path.expanduser("~/.deepseek-mcp")
+LOG_FILE = os.path.join(LOG_DIR, "calls.jsonl")
 
 
 def api_client() -> OpenAI:
@@ -56,6 +60,27 @@ def api_client() -> OpenAI:
         api_key=os.environ.get("DEEPSEEK_API_KEY", ""),
         base_url=os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
     )
+
+
+def _api_key_status() -> str:
+    key = os.environ.get("DEEPSEEK_API_KEY", "")
+    if not key:
+        return "missing"
+    if len(key) < 8:
+        return "too-short"
+    return "set"
+
+
+def _log_call(entry: dict[str, Any]) -> None:
+    if not os.environ.get("DEEPSEEK_MCP_LOG"):
+        return
+    os.makedirs(LOG_DIR, exist_ok=True)
+    entry["ts"] = datetime.now(timezone.utc).isoformat()
+    try:
+        with open(LOG_FILE, "a") as f:
+            f.write(json.dumps(entry) + "\n")
+    except OSError:
+        pass
 
 
 TOOLS: list[dict[str, Any]] = [
@@ -132,8 +157,25 @@ TOOLS: list[dict[str, Any]] = [
 ]
 
 
+def _compute_cost(usage: Any, model: str) -> float | None:
+    pricing = PRICING.get(model)
+    if not pricing or usage is None:
+        return None
+    prompt_tokens = getattr(usage, "prompt_tokens", None) or 0
+    completion_tokens = getattr(usage, "completion_tokens", None) or 0
+    cost = (prompt_tokens * pricing["in"] + completion_tokens * pricing["out"]) / 1_000_000
+    return cost
+
+
+def _format_cost(cost: float | None) -> str:
+    if cost is None:
+        return ""
+    if cost < 0.0001:
+        return "  cost=<$0.0001"
+    return f"  cost=${cost:.4f}"
+
+
 def call_deepseek(args: dict[str, Any], progress_token: Any = None) -> str:
-    """Flash tool — non-thinking mode for fast mechanical tasks."""
     system_parts = [DEFAULT_SYSTEM_PROMPT]
     if args.get("system"):
         system_parts.append(args["system"])
@@ -153,12 +195,20 @@ def call_deepseek(args: dict[str, Any], progress_token: Any = None) -> str:
         extra_body={"thinking": {"type": "disabled"}},
     )
 
-    text, usage = _collect_stream(stream, progress_token)
-    return _format_result(text, usage, model, started_at)
+    text, usage, _reasoning = _collect_stream(stream, progress_token)
+    result = _format_result(text, usage, model, started_at)
+    cost = _compute_cost(usage, model)
+    _log_call({
+        "tool": "deepseek", "model": model,
+        "tokens_in": getattr(usage, "prompt_tokens", None) if usage else None,
+        "tokens_out": getattr(usage, "completion_tokens", None) if usage else None,
+        "latency_s": round(time.time() - started_at, 2),
+        "cost_usd": round(cost, 6) if cost else None,
+    })
+    return result
 
 
 def call_advisor(args: dict[str, Any], progress_token: Any = None) -> str:
-    """Advisor tool — pro model with thinking mode and configurable effort."""
     system_parts = [ADVISOR_SYSTEM_PROMPT]
     if args.get("system"):
         system_parts.append(args["system"])
@@ -182,13 +232,24 @@ def call_advisor(args: dict[str, Any], progress_token: Any = None) -> str:
         },
     )
 
-    text, usage = _collect_stream(stream, progress_token)
-    meta = _format_result(text, usage, f"{model}·{effort}", started_at)
-    return meta
+    text, usage, reasoning_text = _collect_stream(stream, progress_token)
+    result = _format_result(text, usage, f"{model}·{effort}", started_at)
+    cost = _compute_cost(usage, model)
+    _log_call({
+        "tool": "advise", "model": model, "effort": effort,
+        "tokens_in": getattr(usage, "prompt_tokens", None) if usage else None,
+        "tokens_out": getattr(usage, "completion_tokens", None) if usage else None,
+        "latency_s": round(time.time() - started_at, 2),
+        "cost_usd": round(cost, 6) if cost else None,
+    })
+    if reasoning_text:
+        result = f"<reasoning>\n{reasoning_text}\n</reasoning>\n\n{result}"
+    return result
 
 
-def _collect_stream(stream: Any, progress_token: Any) -> tuple[str, Any]:
+def _collect_stream(stream: Any, progress_token: Any) -> tuple[str, Any, str]:
     text = ""
+    reasoning = ""
     usage = None
     chunk_count = 0
 
@@ -207,17 +268,24 @@ def _collect_stream(stream: Any, progress_token: Any) -> tuple[str, Any]:
                         "message": f"{len(text)} chars received",
                     },
                 }), flush=True)
+        if chunk.choices and getattr(chunk.choices[0].delta, "reasoning_content", None):
+            reasoning += chunk.choices[0].delta.reasoning_content
         if getattr(chunk, "usage", None):
             usage = chunk.usage
 
-    return text, usage
+    return text, usage, reasoning
 
 
 def _format_result(text: str, usage: Any, model_label: str, started_at: float) -> str:
     elapsed = round(time.time() - started_at, 2)
+    model = model_label.split("·")[0]
+    cost = _compute_cost(usage, model)
     metadata = [f"model={model_label}", f"latency={elapsed}s"]
     if usage:
         metadata.append(f"tokens={usage.prompt_tokens}+{usage.completion_tokens}")
+    cost_str = _format_cost(cost)
+    if cost_str:
+        metadata.append(cost_str)
     return f"{text}\n\n---\n_deepseek · {'  '.join(metadata)}_"
 
 
@@ -238,13 +306,25 @@ def handle(request: dict[str, Any]) -> dict[str, Any] | None:
     request_id = request.get("id")
 
     if method == "initialize":
+        key_status = _api_key_status()
+        if key_status != "set":
+            print(
+                "deepseek-mcp: DEEPSEEK_API_KEY not set. "
+                "Get a key at platform.deepseek.com and add to your MCP config env.",
+                file=sys.stderr,
+                flush=True,
+            )
         return {
             "jsonrpc": "2.0",
             "id": request_id,
             "result": {
                 "protocolVersion": PROTOCOL_VERSION,
                 "capabilities": {"tools": {"listChanged": False}},
-                "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION},
+                "serverInfo": {
+                    "name": SERVER_NAME,
+                    "version": SERVER_VERSION,
+                    "apiKey": key_status,
+                },
             },
         }
 

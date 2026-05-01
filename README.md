@@ -6,10 +6,11 @@
 
 Use DeepSeek from Claude Code, Codex, or any MCP-compatible client as a small, cheap supervised worker.
 
-`deepseek-mcp` is a tiny stdio MCP server with one tool:
+`deepseek-mcp` is a tiny stdio MCP server with two tools:
 
 ```text
-deepseek(prompt, system?, model?)
+deepseek(prompt, system?)     — fast, cheap, non-thinking (flash)
+advise(prompt, system?, effort?) — deep reasoning (pro + thinking)
 ```
 
 It is built for bounded tasks where another model can reduce mechanical load:
@@ -27,18 +28,24 @@ It is not built for autonomous architecture, security policy, final client prose
 
 ### 1. Install
 
-Clone and install locally:
+Zero-install with `uvx`:
+
+```bash
+DEEPSEEK_API_KEY="sk-..." uvx deepseek-mcp-server
+```
+
+Or install persistently:
+
+```bash
+pip install "git+https://github.com/arizen-dev/deepseek-mcp.git"
+```
+
+Or clone and install locally:
 
 ```bash
 git clone https://github.com/arizen-dev/deepseek-mcp.git
 cd deepseek-mcp
-python3 -m pip install -e .
-```
-
-Or install directly from GitHub:
-
-```bash
-python3 -m pip install "git+https://github.com/arizen-dev/deepseek-mcp.git"
+pip install -e .
 ```
 
 ### 2. Add your DeepSeek key
@@ -75,7 +82,7 @@ MCP servers are started when the client launches, so restart Claude Code or Code
 
 ### 3. Configure MCP
 
-If you installed via pip, use the installed command directly:
+If you installed via pip (or uvx), use the installed command directly:
 
 ```json
 {
@@ -109,10 +116,11 @@ If you cloned the repo, point to the script directly:
 
 After restart, `/mcp` should show a `deepseek` server.
 
-In Claude Code, the tool name is usually:
+In Claude Code, the tool names are:
 
 ```text
-mcp__deepseek__deepseek
+mcp__deepseek__deepseek     — flash (fast, mechanical)
+mcp__deepseek__advise       — pro  (deep reasoning)
 ```
 
 ## Codex
@@ -155,29 +163,34 @@ The server appends lightweight metadata:
 
 ```text
 ---
-_deepseek · model=deepseek-v4-flash  latency=18.42s  tokens=52+74_
+_deepseek · model=deepseek-v4-flash  latency=18.42s  tokens=52+74  cost=$0.0001_
 ```
 
-Latency depends heavily on prompt size, model, network, and API load. In local doc-ops style checks, small structured tasks were typically tens of seconds; tiny smoke tests can return much faster. Treat benchmark numbers as directional, not a guarantee.
+Latency depends heavily on prompt size, model, network, and API load. Treat benchmark numbers as directional, not a guarantee.
+
+## CLI
+
+After installing, you can use the CLI for smoke tests and one-shot calls:
+
+```bash
+# Validate setup
+python -m deepseek_mcp check
+
+# One-shot flash call
+python -m deepseek_mcp run "Classify: urgent / later — 'Server down in prod'"
+
+# Advisor call with deep reasoning
+python -m deepseek_mcp advise "Should we build or buy analytics?" --effort max
+```
+
+Exit codes: 0 = success, 1 = API error, 2 = missing key.
 
 ## Models
 
-The default model is:
-
-```text
-deepseek-v4-flash
-```
-
-You can request:
-
-```json
-{
-  "model": "deepseek-v4-pro",
-  "prompt": "..."
-}
-```
-
-Model names are passed through to the DeepSeek-compatible API. If DeepSeek changes model names, update the `model` argument.
+| Tool | Model | Mode | Best for |
+|------|-------|------|----------|
+| `deepseek` | deepseek-v4-flash | Non-thinking | Classification, extraction, formatting, mechanical edits |
+| `advise` | deepseek-v4-pro | Thinking (effort: medium/high/max) | Architecture, tradeoffs, second opinions, ambiguity |
 
 ## Cost
 
@@ -190,15 +203,22 @@ Per-call cost depends on token count and model. Pricing per [api.deepseek.com](h
 
 ¹ Pro pricing is 75% off until 2026-05-31. Non-discounted: $1.74/$0.0145/$3.48.
 
-**Typical costs:**
+**Typical per-call cost (cache miss):**
 
-| Task | Flash (cache miss) | Flash (cache hit) | Pro (cache miss) |
-|------|-------------------|-------------------|-------------------|
-| Small (1K+0.5K) | ~$0.0003 | ~$0.0001 | ~$0.0009 |
-| Medium (4K+2K) | ~$0.001 | ~$0.0006 | ~$0.003 |
-| Large (100K+10K) | ~$0.02 | ~$0.003 | ~$0.05 |
+| Task | Flash | Pro |
+|------|-------|-----|
+| Small (~1K in + ~0.5K out) | ~$0.0003 | ~$0.0009 |
+| Medium (~4K in + ~2K out) | ~$0.001 | ~$0.003 |
 
-A session of 100 small tasks costs roughly $0.03 (flash) or $0.09 (pro).
+Each response footer includes an estimated `cost=$...` based on token usage.
+
+## Environment variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DEEPSEEK_API_KEY` | — | Required. Your DeepSeek API key. |
+| `DEEPSEEK_BASE_URL` | `https://api.deepseek.com` | API base URL (change for proxy/compatible providers). |
+| `DEEPSEEK_MCP_LOG` | (unset) | Set to `1` to log call metadata to `~/.deepseek-mcp/calls.jsonl` (no prompts logged). |
 
 ## When to use it
 
@@ -225,10 +245,10 @@ Use it like a fast junior analyst whose work you will review, not like an owner.
 The server:
 
 1. reads JSON-RPC messages from stdin;
-2. exposes one MCP tool named `deepseek`;
+2. exposes two MCP tools: `deepseek` (flash, non-thinking) and `advise` (pro, thinking);
 3. sends your prompt to DeepSeek's OpenAI-compatible chat completions API;
 4. streams the response;
-5. returns the text plus model, latency, and token metadata.
+5. returns the text plus model, latency, token, and cost metadata.
 
 There is no database, no background daemon, no local web server, and no file-system access beyond the MCP client starting the process.
 
@@ -238,17 +258,25 @@ After installing:
 
 ```bash
 echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
-  | DEEPSEEK_API_KEY="sk-..." python3 deepseek_mcp_server.py
+  | DEEPSEEK_API_KEY="sk-..." deepseek-mcp-server
 ```
 
-You should see a JSON response with a single `deepseek` tool.
+You should see a JSON response with two tools (`deepseek` + `advise`).
 
 Then test a real call:
 
 ```bash
-echo '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"deepseek","arguments":{"prompt":"Return exactly: ok"}}}' \
-  | DEEPSEEK_API_KEY="sk-..." python3 deepseek_mcp_server.py
+echo '{"jsonrpc":"2.0","id":2,"method":"tools/call",\
+  "params":{"name":"deepseek","arguments":{"prompt":"Return exactly: ok"}}}' \
+  | DEEPSEEK_API_KEY="sk-..." deepseek-mcp-server
 ```
+
+## Examples
+
+See [examples/](examples/) for real prompt templates:
+- [flash_classify.md](examples/flash_classify.md) — inbox triage
+- [advise_architecture.md](examples/advise_architecture.md) — architecture decision
+- [advise_tradeoff.md](examples/advise_tradeoff.md) — build vs buy
 
 ## Benchmark
 
@@ -257,15 +285,9 @@ See [docs/benchmark.md](docs/benchmark.md) for validation observations and usage
 ## Development
 
 ```bash
-python3 -m pip install -e ".[dev]"
-python3 -m pytest
-```
-
-If you do not install dev extras:
-
-```bash
-python3 -m pip install -r requirements-dev.txt
-python3 -m pytest
+pip install -e ".[dev]"
+pip install -r requirements-dev.txt  # alternative
+python -m pytest
 ```
 
 ## Security notes
