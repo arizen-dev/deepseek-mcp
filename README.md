@@ -290,8 +290,21 @@ pip install -r requirements-dev.txt  # alternative
 python -m pytest
 ```
 
+## Compatible endpoints
+
+`deepseek-mcp` works with any OpenAI-compatible API. Set `DEEPSEEK_BASE_URL` to point elsewhere:
+
+| Provider | `DEEPSEEK_BASE_URL` | Notes |
+|----------|---------------------|-------|
+| DeepSeek | `https://api.deepseek.com` | Default |
+| Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai/` | Requires Gemini API key; models like `gemini-2.5-flash` |
+| Ollama (local) | `http://localhost:11434/v1` | Run any local model; e.g. `llama3`, `qwen2.5` |
+| vLLM (self-hosted) | `http://localhost:8000/v1` | For self-hosted open-weight models |
+| Mistral API | `https://api.mistral.ai/v1` | Requires Mistral API key |
+
 ## Security notes
 
+- The worker returns text only. It cannot call tools, write files, or access your repo. Output lands in the primary model's context — you review before anything is used.
 - Do not commit API keys.
 - Prefer client/global env injection over hardcoding keys in project repos.
 - Treat model output as untrusted candidate text.
